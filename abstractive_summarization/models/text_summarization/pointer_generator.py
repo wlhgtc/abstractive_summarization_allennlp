@@ -225,8 +225,6 @@ class PointerGenerator(Model):
         # complain.
         encoder_outputs_mask = encoder_outputs_mask.float()
         # (batch_size, input_sequence_length)
-       # import pdb
-       # pdb.set_trace()
         input_weights = self._decoder_attention(decoder_hidden_state, encoder_outputs, encoder_outputs_mask)
         
         # (batch_size, encoder_output_dim)

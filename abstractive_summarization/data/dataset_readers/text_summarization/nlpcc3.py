@@ -103,7 +103,6 @@ class NLPCC3DatasetReader(DatasetReader):
         tokenized_source = self._source_tokenizer.tokenize(source_string)
         if self._make_vocab is False:
             tokenized_source = tokenized_source[:self._max_encoding_steps]
-        tokenized_source = self._source_tokenizer.tokenize(source_string)
         if self._source_add_start_token:
             tokenized_source.insert(0, Token(START_SYMBOL))
         tokenized_source.append(Token(END_SYMBOL))
