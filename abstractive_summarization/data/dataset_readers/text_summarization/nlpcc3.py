@@ -136,7 +136,7 @@ class NLPCC3DatasetReader(DatasetReader):
         else:
             target_token_indexers = TokenIndexer.dict_from_params(target_indexers_type)
         lazy = params.pop('lazy', False)
-        make_vocab = params.pop_bool('make_vocab', True)
+        make_vocab = params.pop_bool('make_vocab', False)
         max_encoding_steps = params.pop('max_encoding_steps', 1000)
         params.assert_empty(cls.__name__)
         return NLPCC3DatasetReader(source_tokenizer, target_tokenizer,
