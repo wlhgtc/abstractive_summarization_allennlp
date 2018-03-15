@@ -71,7 +71,7 @@ class PointerGenerator(Model):
                  target_namespace: str = "tokens",
                  target_embedder: TextFieldEmbedder = None,
                  attention_function: SimilarityFunction = None,
-                 scheduled_sampling_ratio: float = 0.0) -> None:
+                 scheduled_sampling_ratio: float = 0.25) -> None:
         super(PointerGenerator, self).__init__(vocab)
         self._source_embedder = source_embedder
         self._encoder = encoder

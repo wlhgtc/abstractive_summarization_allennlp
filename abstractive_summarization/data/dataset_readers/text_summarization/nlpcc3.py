@@ -1,5 +1,5 @@
 '''
-text_summarization dataset_reader inherit from seq2seq dataset_reader
+nlpcc3 single document summarization dataset_reader inherit from seq2seq dataset_reader
 '''        
 from typing import Dict
 import logging
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 START_SYMBOL = "@@START@@"
 END_SYMBOL = "@@END@@"
 
-@DatasetReader.register("text_summarization")
-class TextSummarizationDatasetReader(DatasetReader):
+@DatasetReader.register("nlpcc3")
+class NLPCC3DatasetReader(DatasetReader):
     """
     Reads a JSON-lines file containing source_tokens(article) and 
     target_tokens(summarization), and creates a dataset suitable
@@ -60,13 +60,17 @@ class TextSummarizationDatasetReader(DatasetReader):
                  source_token_indexers: Dict[str, TokenIndexer] = None,
                  target_token_indexers: Dict[str, TokenIndexer] = None,
                  source_add_start_token: bool = True,
-                 lazy: bool = False) -> None:
+                 lazy: bool = False,
+                 make_vocab: bool = False,
+                 max_encoding_steps: int = 1000) -> None:
         super().__init__(lazy)
         self._source_tokenizer = source_tokenizer or WordTokenizer()
         self._target_tokenizer = target_tokenizer or self._source_tokenizer
         self._source_token_indexers = source_token_indexers or {"tokens": SingleIdTokenIndexer()}
         self._target_token_indexers = target_token_indexers or self._source_token_indexers
         self._source_add_start_token = source_add_start_token
+        self._make_vocab = make_vocab
+        self._max_encoding_steps = max_encoding_steps
 
     @overrides
     def _read(self, file_path):
@@ -97,6 +101,9 @@ class TextSummarizationDatasetReader(DatasetReader):
     def text_to_instance(self, source_string: str, target_string: str = None, id: int = None) -> Instance:  # type: ignore
         # pylint: disable=arguments-differ
         tokenized_source = self._source_tokenizer.tokenize(source_string)
+        if self._make_vocab is False:
+            tokenized_source = tokenized_source[:self._max_encoding_steps]
+        tokenized_source = self._source_tokenizer.tokenize(source_string)
         if self._source_add_start_token:
             tokenized_source.insert(0, Token(START_SYMBOL))
         tokenized_source.append(Token(END_SYMBOL))
@@ -112,7 +119,7 @@ class TextSummarizationDatasetReader(DatasetReader):
             return Instance({'source_tokens': source_field, 'id':id_field})
 
     @classmethod
-    def from_params(cls, params: Params) -> 'TextSummarizationDatasetReader':
+    def from_params(cls, params: Params) -> 'NLPCC3DatasetReader':
         source_tokenizer_type = params.pop('source_tokenizer', None)
         source_tokenizer = None if source_tokenizer_type is None else Tokenizer.from_params(source_tokenizer_type)
         target_tokenizer_type = params.pop('target_tokenizer', None)
@@ -129,7 +136,10 @@ class TextSummarizationDatasetReader(DatasetReader):
         else:
             target_token_indexers = TokenIndexer.dict_from_params(target_indexers_type)
         lazy = params.pop('lazy', False)
+        make_vocab = params.pop_bool('make_vocab', True)
+        max_encoding_steps = params.pop('max_encoding_steps', 1000)
         params.assert_empty(cls.__name__)
-        return TextSummarizationDatasetReader(source_tokenizer, target_tokenizer,
+        return NLPCC3DatasetReader(source_tokenizer, target_tokenizer,
                                     source_token_indexers, target_token_indexers,
-                                    source_add_start_token, lazy)
+                                    source_add_start_token, lazy, make_vocab, 
+                                    max_encoding_steps)
