@@ -1,6 +1,6 @@
 {
   "dataset_reader": {
-    "type": "text_summarization",
+    "type": "nlpcc3",
     "lazy": true,
     "source_tokenizer": {
       "type": "word",
@@ -37,7 +37,7 @@
       "type": "gru",
       "bidirectional": true,
       "input_size": 128,
-      "hidden_size": 256,
+      "hidden_size": 128,
       "num_layers": 1,
       "dropout": 0.2
     },
@@ -56,8 +56,8 @@
     "type": "bucket",
     "sorting_keys": [["source_tokens", "num_tokens"],["target_tokens","num_tokens"]],
     "biggest_batch_first": true,
-    "batch_size": 16,
-    "max_instances_in_memory": 12800
+    "batch_size": 2,
+    "max_instances_in_memory": 512
   },
   "trainer": {
     "num_epochs": 5,
