@@ -171,6 +171,8 @@ class Vocabulary:
                  only_include_pretrained_words: bool = False) -> None:
         self._padding_token = DEFAULT_PADDING_TOKEN
         self._oov_token = DEFAULT_OOV_TOKEN
+        self.extended = False
+        self.max_oovs = None
         if not isinstance(max_vocab_size, dict):
             int_max_vocab_size = max_vocab_size
             max_vocab_size = defaultdict(lambda: int_max_vocab_size)  # type: ignore
@@ -414,12 +416,12 @@ class Vocabulary:
 
     def get_token_from_index(self, index: int, namespace: str = 'tokens') -> str:
         return self._index_to_token[namespace][index]
-        
+
     def get_vocab_size(self, namespace: str = 'tokens') -> int:
         if not self.extended:
             self.unextend_len = len(self._token_to_index[namespace])
         return self.unextend_len if self.unextend_len else -1
-            
+    
     def set_max_oovs(self,max_oovs: int = None):
         self.max_oovs = max_oovs
         
@@ -431,9 +433,11 @@ class Vocabulary:
                     self.add_token_to_namespace(token, namespace)
         self.extended = True
         
-    def drop_extend(self):
-        for index,token in vocab.get_index_to_token_vocabulary(namespace)[::-1]:
-            while index > self.unextend_len:
+    def drop_extend(self,namespace: str = 'tokens'):
+        for index,token in list(self.get_index_to_token_vocabulary(namespace).items())[::-1]:
+            if index > self.unextend_len:
                 self._token_to_index[namespace].pop(token)
-                self._index_to_token[namespace].pop(token)
+                self._index_to_token[namespace].pop(index)
+            else:
+                break
         self.extended = False
