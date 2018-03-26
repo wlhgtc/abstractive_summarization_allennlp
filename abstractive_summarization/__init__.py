@@ -1,4 +1,5 @@
 from abstractive_summarization.data.dataset_readers.text_summarization.nlpcc3 import NLPCC3DatasetReader
 from abstractive_summarization.data.tokenizers.word_splitter import JieBaWordSplitter
+from abstractive_summarization.data.iterators.bucket_instance_iterator import BucketInstanceIterator
 from abstractive_summarization.modules.similarity_functions.linearv import LinearVSimilarity
 from abstractive_summarization.models.text_summarization.pointer_generator import PointerGenerator
