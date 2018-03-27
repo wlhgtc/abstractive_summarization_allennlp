@@ -17,7 +17,6 @@ from allennlp.modules.similarity_functions import SimilarityFunction
 from allennlp.modules.token_embedders import Embedding
 from allennlp.models.model import Model
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits, weighted_sum
-from abstractive_summarization.nn.util import sequence_cross_entropy_with_probs
 from allennlp.data.instance import Instance
 
 
@@ -125,10 +124,12 @@ class PointerGenerator(Model):
 
     @overrides
     def forward(self,  # type: ignore
-                source_tokens: Dict[str, torch.LongTensor],
+                source_tokens: Dict[str, torch.LongTensor] = None,
                 target_tokens: Dict[str, torch.LongTensor] = None,
                 ids: List[int] = None,
-                instances: Union[Instance, List[Instance]] = None ) -> Dict[str, torch.Tensor]:
+                raw: Dict = None,
+                extended: Dict = None,
+                predict: bool = False) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
         """
         Decoder logic for producing the entire target sequence.
@@ -142,18 +143,10 @@ class PointerGenerator(Model):
            Output of ``Textfield.as_array()`` applied on target ``TextField``. We assume that the
            target tokens are also represented as a ``TextField``.
         """
-        # (batch_size, input_sequence_length, encoder_output_dim)
-        # instances[allennlp.data.instance.Instance] 
-        # assert len(instances) == batch_size
-        # instances[i].fields = {'source_tokens': TextField ,'target_tokens':TextField}
-        # TextField: non_padded seq(tokens == []  _indexed_tokens == {'tokens':[]})
-        # if self._pointer_gen and instances is not None:
-            #self.vocab.add_token_to_namespace
-            # dynamic_vocab = Vocabulary.from_instances(instances,max_vocab_size=self._max_oovs)
-            # for instance in instances:
-                # for name,field in instance.fields.items():
-                    # for token_index in field._indexed_tokens:
-                        # if self.vocab.token
+        if self._pointer_gen:
+            source_tokens = raw['source_tokens']
+            if 'target_tokens' in raw.keys():
+                target_tokens = raw['target_tokens']
         embedded_input = self._source_embedder(source_tokens)
         batch_size, _, _ = embedded_input.size()
         source_mask = get_text_field_mask(source_tokens)
@@ -193,32 +186,27 @@ class PointerGenerator(Model):
                                                                  (decoder_hidden, decoder_context))
                                                                  
             #cat[S_t,H*_t(short memory)] 
-            P_attensions, decoder_output = self._decode_step_output(decoder_hidden, encoder_outputs, source_mask)
+            P_attensions_e,P_attensions, decoder_output = self._decode_step_output(decoder_hidden, encoder_outputs, source_mask)
             # (batch_size, num_classes)
             # W[S_t,H*_t]+b
             output_attention = self._output_attention_layer(decoder_output) 
             output_projections = self._output_projection_layer(output_attention)
-            # list of (batch_size, 1, num_classes)
-            #step_logits.append(output_projections.unsqueeze(1))
             # P_vocab
             class_probabilities = F.softmax(output_projections, dim=-1)
-            #import pdb
-            #pdb.set_trace()
             if self._pointer_gen:
                 # generation probability
                 P_gen = F.sigmoid(self._pointer_gen_layer(torch.cat((decoder_output,decoder_input),-1)))
                 P_copy = 1 - P_gen
-                expand_dim = len(self.vocab._token_to_index['tokens']) - class_probabilities.shape[-1]
-                expand_shape = list(class_probabilities.shape)
-                expand_shape[-1] = expand_dim
+                expand_shape =[batch_size,len(self.vocab._token_to_index['tokens'])-self.vocab.unextend_len]
                 expand_variable = Variable(torch.zeros(expand_shape).cuda() if class_probabilities.is_cuda else torch.zeros(expand_shape))
+                
+                expand_logits = torch.cat([output_projections,expand_variable],dim=-1)
+                final_logits = expand_logits*P_gen + torch.zeros_like(expand_logits).scatter_(-1,extended['source_tokens']['tokens'], P_attensions_e*P_copy)
                 expand_probabilities = torch.cat([class_probabilities,expand_variable],dim=-1)
-                final_probabilities = expand_probabilities*P_gen + torch.zeros_like(expand_probabilities).scatter_(-1,source_tokens['tokens'], P_attensions*P_copy)
+                final_probabilities = expand_probabilities*P_gen + torch.zeros_like(expand_probabilities).scatter_(-1,extended['source_tokens']['tokens'], P_attensions*P_copy)
                 class_probabilities = final_probabilities
-                #final_probabilities = tf.scatter_nd_add(expand_probabilities*P_gen, source_tokens, P_attensions*P_copy)
-                #tf.scatter_nd_add(ref, indices, updates)
-                # extended vocabulary
-                #class_probabilities = class_probabilities.extend
+            # list of (batch_size, 1, num_classes)
+            step_logits.append(final_logits.unsqueeze(1) if self._pointer_gen else output_projections.unsqueeze(1))
             _, predicted_classes = torch.max(class_probabilities, 1)
             step_probabilities.append(class_probabilities.unsqueeze(1))
             last_predictions = predicted_classes
@@ -226,20 +214,23 @@ class PointerGenerator(Model):
             step_predictions.append(last_predictions.unsqueeze(1))
         # step_logits is a list containing tensors of shape (batch_size, 1, num_classes)
         # This is (batch_size, num_decoding_steps, num_classes)
-        #logits = torch.cat(step_logits, 1)
+        logits = torch.cat(step_logits, 1)
         class_probabilities = torch.cat(step_probabilities, 1)
         all_predictions = torch.cat(step_predictions, 1)
-        output_dict = {"class_probabilities": class_probabilities,
+        output_dict = {"logits": logits,
+                       "class_probabilities": class_probabilities,
                        "predictions": all_predictions}
         if target_tokens:
             target_mask = get_text_field_mask(target_tokens)
-            loss = self._get_loss(class_probabilities, targets, target_mask)
+            targets = extended['target_tokens']['tokens'] if self._pointer_gen else targets
+            loss = self._get_loss(logits, targets, target_mask)
             output_dict["loss"] = loss
             # TODO: Define metrics
         if ids != None:
             output_dict['ids'] = ids
-        if self.training:
-            self.vocab.drop_extend()
+        if not predict:
+            if self._pointer_gen:
+                self.vocab.drop_extend()
         return output_dict
 
     def _decode_step_output(self,
@@ -263,19 +254,21 @@ class PointerGenerator(Model):
         # encoder_outputs : (batch_size, input_sequence_length, encoder_output_dim)
         # Ensuring mask is also a FloatTensor. Or else the multiplication within attention will
         # complain.
+        #import pdb
+        #pdb.set_trace()
         encoder_outputs_mask = encoder_outputs_mask.float()
         # (batch_size, input_sequence_length)
         input_weights_e = self._decoder_attention(decoder_hidden_state, encoder_outputs, encoder_outputs_mask)
-        input_weights_a = F.softmax(input_weights_e)
+        input_weights_a = F.softmax(input_weights_e,dim=-1)
         # (batch_size, encoder_output_dim)
         attended_input = weighted_sum(encoder_outputs, input_weights_a)
         #H*_t = sum(h_i*at_i)
         # (batch_size, encoder_output_dim + decoder_hidden_dim)
-        return input_weights_a,torch.cat((decoder_hidden_state,attended_input), -1)
+        return input_weights_e,input_weights_a,torch.cat((decoder_hidden_state,attended_input), -1)
         # [S_t,H*_t]
 
     @staticmethod
-    def _get_loss(probs: torch.LongTensor,
+    def _get_loss(logits: torch.LongTensor,
                   targets: torch.LongTensor,
                   target_mask: torch.LongTensor) -> torch.LongTensor:
         """
@@ -303,7 +296,7 @@ class PointerGenerator(Model):
         """
         relevant_targets = targets[:, 1:].contiguous()  # (batch_size, num_decoding_steps)
         relevant_mask = target_mask[:, 1:].contiguous()  # (batch_size, num_decoding_steps)
-        loss = sequence_cross_entropy_with_probs(probs, relevant_targets, relevant_mask)
+        loss = sequence_cross_entropy_with_logits(logits, relevant_targets, relevant_mask)
         return loss
 
     @overrides
@@ -328,9 +321,46 @@ class PointerGenerator(Model):
             predicted_tokens = [self.vocab.get_token_from_index(x, namespace=self._target_namespace)
                                 for x in indices]
             all_predicted_tokens.append(predicted_tokens)
-        self.vocab.drop_extend()
+        if self._pointer_gen:
+            self.vocab.drop_extend()
         output_dict["predicted_tokens"] = all_predicted_tokens
         return output_dict
+
+    @overrides
+    def forward_on_instances(self,
+                             instances: List[Instance],
+                             cuda_device: int) -> List[Dict[str, numpy.ndarray]]:
+        """
+        Takes a list of  :class:`~allennlp.data.instance.Instance`s, converts that text into
+        arrays using this model's :class:`Vocabulary`, passes those arrays through
+        :func:`self.forward()` and :func:`self.decode()` (which by default does nothing)
+        and returns the result.  Before returning the result, we convert any
+        ``torch.autograd.Variables`` or ``torch.Tensors`` into numpy arrays and separate the
+        batched output into a list of individual dicts per instance. Note that typically
+        this will be faster on a GPU (and conditionally, on a CPU) than repeated calls to
+        :func:`forward_on_instance`.
+        """
+        model_input = {}
+        dataset = Batch(instances)
+        dataset.index_instances(self.vocab)
+        model_input.update({'raw':dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)})
+        #extend
+        extend_vocab = Vocabulary.from_instances(dataset.instances)
+        self.vocab.extend_from(extend_vocab)
+        dataset.index_instances(self.vocab)
+        model_input.update({'extended':dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)})
+        #input
+        model_input.update({'predict':True})
+        outputs = self.decode(self(**model_input))
+
+        instance_separated_output: List[Dict[str, numpy.ndarray]] = [{} for _ in dataset.instances]
+        for name, output in list(outputs.items()):
+            if isinstance(output, torch.autograd.Variable):
+                output = output.data.cpu().numpy()
+            outputs[name] = output
+            for instance_output, batch_element in zip(instance_separated_output, output):
+                instance_output[name] = batch_element
+        return instance_separated_output
 
     @classmethod
     def from_params(cls, vocab, params: Params) -> 'PointerGenerator':

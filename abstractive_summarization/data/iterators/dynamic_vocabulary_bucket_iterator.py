@@ -16,8 +16,8 @@ from allennlp.data.iterators.data_iterator import DataIterator
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
-@DataIterator.register("bucket-instance")
-class BucketInstanceIterator(BasicIterator):
+@DataIterator.register("dv-bucket")
+class DynamicVocabularyBucketIterator(BasicIterator):
     """
     An iterator which by default, pads batches with respect to the maximum input lengths `per
     batch`. Additionally, you can provide a list of field names and padding keys which the dataset
@@ -65,12 +65,12 @@ class BucketInstanceIterator(BasicIterator):
                  instances_per_epoch: int = None,
                  max_instances_in_memory: int = None) -> None:
         if not sorting_keys:
-            raise ConfigurationError("BucketInstanceIterator requires sorting_keys to be specified")
+            raise ConfigurationError("DynamicVocabularyBucketIterator requires sorting_keys to be specified")
 
         self._sorting_keys = sorting_keys
         self._padding_noise = padding_noise
         self._biggest_batch_first = biggest_batch_first
-        super(BucketInstanceIterator, self).__init__(batch_size=batch_size,
+        super(DynamicVocabularyBucketIterator, self).__init__(batch_size=batch_size,
                                              instances_per_epoch=instances_per_epoch,
                                              max_instances_in_memory=max_instances_in_memory)
                                              
@@ -78,17 +78,24 @@ class BucketInstanceIterator(BasicIterator):
     def _yield_one_epoch(self, instances: Iterable[Instance], shuffle: bool, cuda_device: int, for_training: bool):
         batches = self._create_batches(instances, shuffle)
         for batch in batches:
-            if self.vocab is not None:
-                batch.index_instances(self.vocab)
-                extend_vocab = Vocabulary.from_instances(batch.instances)
-                self.vocab.extend_from(extend_vocab)
-                batch.index_instances(self.vocab)
+            # raw
+            batch.index_instances(self.vocab)
             padding_lengths = batch.get_padding_lengths()
             logger.debug("Batch padding lengths: %s", str(padding_lengths))
             logger.debug("Batch size: %d", len(batch.instances))
-            forword_input  = batch.as_tensor_dict(padding_lengths,
+            forword_input  = {'raw':batch.as_tensor_dict(padding_lengths,
                                        cuda_device=cuda_device,
-                                       for_training=for_training)
+                                       for_training=for_training)}
+            # extended
+            extend_vocab = Vocabulary.from_instances(batch.instances)
+            self.vocab.extend_from(extend_vocab)
+            batch.index_instances(self.vocab)
+            padding_lengths = batch.get_padding_lengths()
+            logger.debug("Batch padding lengths: %s", str(padding_lengths))
+            logger.debug("Batch size: %d", len(batch.instances))
+            forword_input.update({'extended':batch.as_tensor_dict(padding_lengths,
+                                       cuda_device=cuda_device,
+                                       for_training=for_training)})
             yield forword_input
 
     @overrides
@@ -142,7 +149,7 @@ class BucketInstanceIterator(BasicIterator):
         return [instance_with_lengths[-1] for instance_with_lengths in instances_with_lengths]
 
     @classmethod
-    def from_params(cls, params: Params) -> 'BucketInstanceIterator':
+    def from_params(cls, params: Params) -> 'DynamicVocabularyBucketIterator':
         sorting_keys = params.pop('sorting_keys')
         padding_noise = params.pop_float('padding_noise', 0.1)
         biggest_batch_first = params.pop_bool('biggest_batch_first', False)
@@ -156,6 +163,3 @@ class BucketInstanceIterator(BasicIterator):
                    batch_size=batch_size,
                    instances_per_epoch=instances_per_epoch,
                    max_instances_in_memory=max_instances_in_memory)
-    
-    def index_with(self, vocab: Vocabulary):
-        self.vocab = vocab

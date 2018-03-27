@@ -55,7 +55,7 @@ class LinearVSimilarity(SimilarityFunction):
         self._weight_vector = Parameter(torch.Tensor(combined_dim,attend_dim))
         self._bias = Parameter(torch.Tensor(attend_dim))
         self._activation = activation
-        self._V = Parameter(torch.Tensor(attend_dim))
+        self._V = Parameter(torch.rand(attend_dim))
         self.reset_parameters()
 
     def reset_parameters(self):

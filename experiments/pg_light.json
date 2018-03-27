@@ -20,52 +20,54 @@
   "test_data_path": "tmp/test.jsonl",
   "evaluate_on_test": false,
   "vocabulary": {
-    "directory_path": "tmp/baseline_light/vocabulary"
+    "directory_path": "tmp/pg_light/vocabulary"
   },
   "model": {
     "type": "pg",
     "source_embedder": {
       "tokens": {
         "type": "embedding",
-        "embedding_dim": 128
+        "embedding_dim": 300,
+        "projection_dim": 100,
+        "pretrained_file": "tmp/wiki.zh.vec.gz",
+        "trainable": false
       }
     },
     "encoder": {
-      "type": "gru",
+      "type": "lstm",
       "bidirectional": true,
-      "input_size": 128,
-      "hidden_size": 128,
+      "input_size": 100,
+      "hidden_size": 100,
       "num_layers": 1,
       "dropout": 0.2
     },
-    "max_decoding_steps": 60,
+    "max_decoding_steps": 40,
     "attention_function": {
-      "type": "linear",
+      "type": "linear-v",
       "combination": "x,y",
-      "tensor_1_dim": 128,
-      "tensor_2_dim": 256,
+      "tensor_1_dim": 100,
+      "tensor_2_dim": 200,
+      "attend_dim": 200,
       "activation": "tanh"
     },
-    "scheduled_sampling_ratio": 0.25
+    "pointer_gen": true,
+    "max_oovs": 300
   },
   "iterator": {
-    "type": "bucket",
+    "type": "dv-bucket",
     "sorting_keys": [["source_tokens", "num_tokens"],["target_tokens","num_tokens"]],
     "biggest_batch_first": true,
-    "batch_size": 32,
-    "max_instances_in_memory": 1024
+    "batch_size": 8,
+    "max_instances_in_memory": 5120
   },
   "trainer": {
-    "num_epochs": 5,
-    "patience": 2,
+    "num_epochs": 10,
+    "patience": 3,
     "cuda_device": 0,
     "grad_clipping": 5.0,
-    "grad_norm": 2.0,
-    "validation_metric": "-loss",
     "optimizer": {
-      "type": "adagrad",
-      "lr": 0.25
+      "type": "adagrad"
     },
-    "num_serialized_models_to_keep": 2
+    "num_serialized_models_to_keep": 3
   }
 }

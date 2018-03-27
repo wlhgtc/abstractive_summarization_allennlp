@@ -428,14 +428,14 @@ class Vocabulary:
     def extend_from(self,vocab,namespace: str = 'tokens'):
         self.get_vocab_size(namespace)
         for index,token in vocab.get_index_to_token_vocabulary(namespace).items():
-            if len(self._token_to_index[namespace]) - self.unextend_len <= self.max_oovs:
+            if len(self._token_to_index[namespace]) - self.unextend_len < self.max_oovs:
                 if token not in self._token_to_index[namespace]:
                     self.add_token_to_namespace(token, namespace)
         self.extended = True
         
     def drop_extend(self,namespace: str = 'tokens'):
         for index,token in list(self.get_index_to_token_vocabulary(namespace).items())[::-1]:
-            if index > self.unextend_len:
+            if index >= self.unextend_len:
                 self._token_to_index[namespace].pop(token)
                 self._index_to_token[namespace].pop(index)
             else:
