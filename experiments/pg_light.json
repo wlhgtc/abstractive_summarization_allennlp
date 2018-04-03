@@ -41,7 +41,7 @@
       "num_layers": 1,
       "dropout": 0.2
     },
-    "max_decoding_steps": 40,
+    "max_decoding_steps": 60,
     "attention_function": {
       "type": "linear-v",
       "combination": "x,y",

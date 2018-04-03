@@ -21,50 +21,8 @@ from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_lo
 from allennlp.data.instance import Instance
 
 
-@Model.register("pg")
-class PointerGenerator(Model):
-    """
-    This ``PointerGenerator`` class is a :class:`Model` which takes a sequence(article), encodes it, and then
-    uses the encoded representations to decode another sequence(summarization).
-
-    This ``PointerGenerator`` model takes an encoder (:class:`Seq2SeqEncoder`) as an input, and
-    implements the functionality of the decoder.  In this implementation, the decoder uses the
-    encoder's outputs in two ways. The hidden state of the decoder is initialized with the output
-    from the final time-step of the encoder, and when using attention, a weighted average of the
-    outputs from the encoder is concatenated to the inputs of the decoder at every timestep.
-
-    Parameters
-    ----------
-    vocab : ``Vocabulary``, required
-        Vocabulary containing source and target vocabularies. They may be under the same namespace
-        (``tokens``) or the target tokens can have a different namespace, in which case it needs to
-        be specified as ``target_namespace``.
-    source_embedder : ``TextFieldEmbedder``, required
-        Embedder for source side sequences
-    encoder : ``Seq2SeqEncoder``, required
-        The encoder of the "encoder/decoder" model
-    max_decoding_steps : int, required
-        Length of decoded sequences
-    target_namespace : str, optional (default = 'tokens')
-        If the target side vocabulary is different from the source side's, you need to specify the
-        target's namespace here. If not, we'll assume it is "tokens", which is also the default
-        choice for the source side, and this might cause them to share vocabularies.
-    target_embedding_dim : int, optional (default = source_embedding_dim)
-        You can specify an embedding dimensionality for the target side. If not, we'll use the same
-        value as the source embedder's.
-    attention_function: ``SimilarityFunction``, optional (default = None)
-        If you want to use attention to get a dynamic summary of the encoder outputs at each step
-        of decoding, this is the function used to compute similarity between the decoder hidden
-        state and encoder outputs.
-    scheduled_sampling_ratio: float, optional (default = 0.0)
-        At each timestep during training, we sample a random number between 0 and 1, and if it is
-        not less than this value, we use the ground truth labels for the whole batch. Else, we use
-        the predictions from the previous time step for the whole batch. If this value is 0.0
-        (default), this corresponds to teacher forcing, and if it is 1.0, it corresponds to not
-        using target side ground truth labels.  See the following paper for more information:
-        Scheduled Sampling for Sequence Prediction with Recurrent Neural Networks. Bengio et al.,
-        2015.
-    """
+@Model.register("mt")
+class MultiTask(Model):
     def __init__(self,
                  vocab: Vocabulary,
                  source_embedder: TextFieldEmbedder,
@@ -76,7 +34,7 @@ class PointerGenerator(Model):
                  scheduled_sampling_ratio: float = 0.25,
                  pointer_gen: bool = True,
                  max_oovs: int = None) -> None:
-        super(PointerGenerator, self).__init__(vocab)
+        super(MultiTask, self).__init__(vocab)
         self._source_embedder = source_embedder
         self._encoder = encoder
         self._max_decoding_steps = max_decoding_steps
