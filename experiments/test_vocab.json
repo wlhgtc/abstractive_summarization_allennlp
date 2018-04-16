@@ -5,7 +5,7 @@
     "source_tokenizer": {
       "type": "word",
       "word_splitter": {
-         "type": "thulac",
+         "type": "jieba",
       },
     },
     "source_token_indexers": {
@@ -21,6 +21,6 @@
   "evaluate_on_test": false,
   "vocabulary": {
     "min_count": {"tokens": 2},
-    "max_vocab_size": {"tokens": 150000}
+    "max_vocab_size": 5000
   }
 }

@@ -16,3 +16,7 @@ python -m allennlp.run train experiments/baseline.json  -r -s tmp/baseline/ --in
 cd tmp/baseline/log/train
 tensorboard --logdir=./
 `
+# predcit
+`
+python -m allennlp.run predict tmp/baseline/model.tar.gz tmp/test.jsonl --batch-size 32 --cuda-device 0 --include-package abstractive_summarization --predictor abstract-generator
+`

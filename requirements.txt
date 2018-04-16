@@ -1,0 +1,9 @@
+allennlp
+jieba
+simplejson
+thulac
+pyltp
+dash
+auth_dash
+dash_core_components
+dash_html_components

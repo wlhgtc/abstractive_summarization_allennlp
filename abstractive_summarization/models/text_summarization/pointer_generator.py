@@ -122,6 +122,11 @@ class PointerGenerator(Model):
         # generationp robability
         if self._pointer_gen:
             self._pointer_gen_layer = Linear(self._decoder_hidden_dim+self._encoder.get_output_dim()+self._decoder_input_dim, 1)
+        # metrics
+        self.metrics = {
+                "ROUGE-1": Rouge(1),
+                "ROUGE-2": Rouge(2),
+        }
 
     @overrides
     def forward(self,  # type: ignore
@@ -131,18 +136,8 @@ class PointerGenerator(Model):
                 extended: Dict = None,
                 predict: bool = False) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
-        """
-        Decoder logic for producing the entire target sequence.
-
-        Parameters
-        ----------
-        source_tokens : Dict[str, torch.LongTensor]
-           The output of ``TextField.as_array()`` applied on the source ``TextField``. This will be
-           passed through a ``TextFieldEmbedder`` and then through an encoder.
-        target_tokens : Dict[str, torch.LongTensor], optional (default = None)
-           Output of ``Textfield.as_array()`` applied on target ``TextField``. We assume that the
-           target tokens are also represented as a ``TextField``.
-        """
+        import pdb
+        pdb.set_trace()
         if self._pointer_gen:
             source_tokens = raw['source_tokens']
             if 'target_tokens' in raw.keys():
@@ -224,8 +219,10 @@ class PointerGenerator(Model):
             target_mask = get_text_field_mask(target_tokens)
             targets = extended['target_tokens']['tokens'] if self._pointer_gen else targets
             loss = self._get_loss(logits, targets, target_mask)
+            for metric in self.metrics.values():
+                evaluated_sentences, reference_sentences = self._metric_decode(all_predictions,targets,target_mask)
+                metric(evaluated_sentences,reference_sentences)
             output_dict["loss"] = loss
-            # TODO: Define metrics
         if not predict:
             if self._pointer_gen:
                 self.vocab.drop_extend()
@@ -235,20 +232,6 @@ class PointerGenerator(Model):
                             decoder_hidden_state: torch.LongTensor = None,
                             encoder_outputs: torch.LongTensor = None,
                             encoder_outputs_mask: torch.LongTensor = None) -> torch.LongTensor:
-        """
-        Given all the encoder outputs, compute the input at the current timestep.  Note: This method is agnostic to
-        whether the indices are gold indices or the predictions made by the decoder at the last
-        timestep. So, this can be used even if we're doing some kind of scheduled sampling.
-
-        Parameters
-        ----------
-        decoder_hidden_state : torch.LongTensor, optional (not needed if no attention)
-            Output of from the decoder at the last time step. Needed only if using attention.
-        encoder_outputs : torch.LongTensor, optional (not needed if no attention)
-            Encoder outputs from all time steps. Needed only if using attention.
-        encoder_outputs_mask : torch.LongTensor, optional (not needed if no attention)
-            Masks on encoder outputs. Needed only if using attention.
-        """
         # encoder_outputs : (batch_size, input_sequence_length, encoder_output_dim)
         # Ensuring mask is also a FloatTensor. Or else the multiplication within attention will
         # complain.
@@ -269,29 +252,6 @@ class PointerGenerator(Model):
     def _get_loss(logits: torch.LongTensor,
                   targets: torch.LongTensor,
                   target_mask: torch.LongTensor) -> torch.LongTensor:
-        """
-        Takes logits (unnormalized outputs from the decoder) of size (batch_size,
-        num_decoding_steps, num_classes), target indices of size (batch_size, num_decoding_steps+1)
-        and corresponding masks of size (batch_size, num_decoding_steps+1) steps and computes cross
-        entropy loss while taking the mask into account.
-
-        The length of ``targets`` is expected to be greater than that of ``logits`` because the
-        decoder does not need to compute the output corresponding to the last timestep of
-        ``targets``. This method aligns the inputs appropriately to compute the loss.
-
-        During training, we want the logit corresponding to timestep i to be similar to the target
-        token from timestep i + 1. That is, the targets should be shifted by one timestep for
-        appropriate comparison.  Consider a single example where the target has 3 words, and
-        padding is to 7 tokens.
-           The complete sequence would correspond to <S> w1  w2  w3  <E> <P> <P>
-           and the mask would be                     1   1   1   1   1   0   0
-           and let the logits be                     l1  l2  l3  l4  l5  l6
-        We actually need to compare:
-           the sequence           w1  w2  w3  <E> <P> <P>
-           with masks             1   1   1   1   0   0
-           against                l1  l2  l3  l4  l5  l6
-           (where the input was)  <S> w1  w2  w3  <E> <P>
-        """
         relevant_targets = targets[:, 1:].contiguous()  # (batch_size, num_decoding_steps)
         relevant_mask = target_mask[:, 1:].contiguous()  # (batch_size, num_decoding_steps)
         loss = sequence_cross_entropy_with_logits(logits, relevant_targets, relevant_mask)
@@ -299,14 +259,6 @@ class PointerGenerator(Model):
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """
-        This method overrides ``Model.decode``, which gets called after ``Model.forward``, at test
-        time, to finalize predictions. The logic for the decoder part of the encoder-decoder lives
-        within the ``forward`` method.
-
-        This method trims the output predictions to the first end symbol, replaces indices with
-        corresponding tokens, and adds a field called ``predicted_tokens`` to the ``output_dict``.
-        """
         predicted_indices = output_dict["predictions"]
         if not isinstance(predicted_indices, numpy.ndarray):
             predicted_indices = predicted_indices.data.cpu().numpy()
@@ -324,29 +276,51 @@ class PointerGenerator(Model):
         output_dict["predicted_tokens"] = all_predicted_tokens
         return output_dict
 
+    def _metric_decode(self, all_predictions,targets,target_mask):
+        if not isinstance(all_predictions, numpy.ndarray):
+            all_predictions = all_predictions.data.cpu().numpy()
+        all_predicted_tokens = []
+        for indices in all_predictions:
+            indices = list(indices)
+            # Collect indices till the first end_symbol
+            if self._end_index in indices:
+                indices = indices[:indices.index(self._end_index)]
+            predicted_tokens = [self.vocab.get_token_from_index(x, namespace=self._target_namespace)
+                                for x in indices]
+            all_predicted_tokens.append(predicted_tokens)
+        if not isinstance(targets, numpy.ndarray):
+            targets = targets.data.cpu().numpy()
+        all_target_tokens = []
+        for indices in targets:
+            indices = list(indices)
+            # Collect indices till the first end_symbol
+            if self._end_index in indices:
+                indices = indices[:indices.index(self._end_index)]
+            target_tokens = [self.vocab.get_token_from_index(x, namespace=self._target_namespace)
+                                for x in indices]
+            all_target_tokens.append(target_tokens)
+        return all_predicted_tokens,all_target_tokens
+
+    @overrides
+    def get_metrics(self, reset: bool = False) -> Dict[str, float]:
+        return {metric_name: metric.get_metric(reset) for metric_name, metric in self.metrics.items()}
+
     @overrides
     def forward_on_instances(self,
                              instances: List[Instance],
                              cuda_device: int) -> List[Dict[str, numpy.ndarray]]:
-        """
-        Takes a list of  :class:`~allennlp.data.instance.Instance`s, converts that text into
-        arrays using this model's :class:`Vocabulary`, passes those arrays through
-        :func:`self.forward()` and :func:`self.decode()` (which by default does nothing)
-        and returns the result.  Before returning the result, we convert any
-        ``torch.autograd.Variables`` or ``torch.Tensors`` into numpy arrays and separate the
-        batched output into a list of individual dicts per instance. Note that typically
-        this will be faster on a GPU (and conditionally, on a CPU) than repeated calls to
-        :func:`forward_on_instance`.
-        """
         model_input = {}
         dataset = Batch(instances)
         dataset.index_instances(self.vocab)
-        model_input.update({'raw':dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)})
+        if self._pointer_gen:
+            model_input.update({'raw':dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)})
         #extend
-        extend_vocab = Vocabulary.from_instances(dataset.instances)
-        self.vocab.extend_from(extend_vocab)
-        dataset.index_instances(self.vocab)
-        model_input.update({'extended':dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)})
+            extend_vocab = Vocabulary.from_instances(dataset.instances)
+            self.vocab.extend_from(extend_vocab)
+            dataset.index_instances(self.vocab)
+            model_input.update({'extended':dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)})
+        else:
+            model_input = dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)
         #input
         model_input.update({'predict':True})
         outputs = self.decode(self(**model_input))
@@ -374,8 +348,8 @@ class PointerGenerator(Model):
             attention_function = SimilarityFunction.from_params(attention_function_type)
         else:
             attention_function = None
-        scheduled_sampling_ratio = params.pop_float("scheduled_sampling_ratio", 0.0)
-        pointer_gen = params.pop_bool("pointer_gen", True)
+        scheduled_sampling_ratio = params.pop_float("scheduled_sampling_ratio", 0.25)
+        pointer_gen = params.pop_bool("pointer_gen", False)
         max_oovs = params.pop("max_oovs", None)
         params.assert_empty(cls.__name__)
         return cls(vocab,

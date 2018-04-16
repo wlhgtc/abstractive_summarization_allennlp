@@ -4,6 +4,8 @@ nlpcc3 single document summarization dataset_reader inherit from seq2seq dataset
 from typing import Dict
 import logging
 import json
+import re
+import codecs
 
 from overrides import overrides
 
@@ -74,7 +76,7 @@ class NLPCC3DatasetReader(DatasetReader):
 
     @overrides
     def _read(self, file_path):
-        with open(file_path, "r") as data_file:
+        with codecs.open(file_path, "r", encoding='utf-8') as data_file:
             logger.info("Reading instances from lines in file at: %s", file_path)
             for line_num, line in enumerate(data_file):
                 line = line.strip("\n")
@@ -86,13 +88,15 @@ class NLPCC3DatasetReader(DatasetReader):
                     _json = json.loads(line)
                 except:
                     continue
-                article = _json['article']
-                summarization = _json['summarization']
+                source_string = _json['article']
+                source_string = re.sub(u'<Paragraph>','',source_string)
+                target_string = _json['summarization']
+                target_string = re.sub(u'<Paragraph>','',target_string)
                 
-                if article == '':
+                if source_string == '':
                     continue
                 
-                yield self.text_to_instance(article, summarization)
+                yield self.text_to_instance(source_string, target_string)
 
     @overrides
     def text_to_instance(self, source_string: str, target_string: str = None) -> Instance:  # type: ignore

@@ -20,10 +20,12 @@
   "test_data_path": "tmp/test.jsonl",
   "evaluate_on_test": false,
   "vocabulary": {
-    "directory_path": "tmp/baseline/vocabulary"
+    "directory_path": "tmp/pg/vocabulary"
   },
   "model": {
     "type": "pg",
+    "pointer_gen": true,
+    "max_oovs": 1000
     "source_embedder": {
       "tokens": {
         "type": "embedding",

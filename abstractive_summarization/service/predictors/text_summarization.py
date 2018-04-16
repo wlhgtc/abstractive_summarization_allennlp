@@ -6,9 +6,6 @@ from allennlp.common.util import JsonDict,sanitize
 from allennlp.data import Instance
 from allennlp.service.predictors.predictor import Predictor
 
-import codecs
-output_file = codecs.open(r'G:\iecas\git\nlpcc3\abstractive_summarization_allennlp\tmp\pg_light\result.txt','a+',encoding='utf-8')
-
 @Predictor.register('abstract-generator')
 class AbstractGeneratorPredictor(Predictor):
     """"Predictor wrapper for the AbstractGeneratorPredictor"""
@@ -40,6 +37,4 @@ class AbstractGeneratorPredictor(Predictor):
         If you don't want your outputs in JSON-lines format
         you can override this function to output them differently.
         """
-        json.dump(outputs,output_file,ensure_ascii=False,encoding="utf-8")
-        output_file.write('\n')
         return json.dumps(outputs,ensure_ascii=False,encoding="utf-8") + "\n"
