@@ -8,11 +8,7 @@ from allennlp.training.metrics.metric import Metric
 @Metric.register("rouge")
 class Rouge(Metric):
     def __init__(self,
-                 vocabulary: Vocabulary,
-                 target_namespace,
                  n:int = 1) -> None:
-        self.vocab = vocabulary
-        self._target_namespace = target_namespace
         self._n = n
         self._total_p = 0.0
         self._total_r = 0.0
@@ -21,11 +17,12 @@ class Rouge(Metric):
 
     @overrides
     def __call__(self, evaluated_sentences, reference_sentences):
-        p,r,f1_score = rouge_n(evaluated_sentences, reference_sentences, n=self._n)
-        self._total_p += p
-        self._total_r += r
-        self._total_f1 += f1_score
-        self._count += 1
+        for i,j in zip(evaluated_sentences, reference_sentences):
+            p,r,f1_score = rouge_n(i, j, n=self._n)
+            self._total_p += p
+            self._total_r += r
+            self._total_f1 += f1_score
+            self._count += 1
 
     @overrides
     def get_metric(self, reset: bool = False) -> Tuple[float, float]:
@@ -40,7 +37,8 @@ class Rouge(Metric):
         f1_score = self._total_f1 / self._count if self._count > 0 else 0
         if reset:
             self.reset()
-        return precision, recall, f1_score
+        #return precision, recall, f1_score
+        return f1_score
 
     @overrides
     def reset(self):
@@ -96,6 +94,7 @@ def rouge_n(evaluated_sentences, reference_sentences, n=2, beta=1):
     :raises ValueError: raises exception if a param has len <= 0
     """
     if len(evaluated_sentences) <= 0 or len(reference_sentences) <= 0:
+        return 0,0,0
         raise (ValueError("Collections must contain at least 1 sentence."))
 
     evaluated_ngrams = _get_word_ngrams(n, evaluated_sentences)
@@ -109,7 +108,7 @@ def rouge_n(evaluated_sentences, reference_sentences, n=2, beta=1):
 
     precision = float(overlapping_count) / float(evaluated_count + 1e-13)
     recall = float(overlapping_count) / float(reference_count + 1e-13)
-    f_measure = (1+beta*beta) * ((precision * recall) / (beta*beta)*(precision + recall + 1e-13)())
+    f_measure = (1+beta*beta) * ((precision * recall) / (beta*beta)*(precision + recall + 1e-13))
     return precision, recall, f_measure 
 
 def rouge_su_n(evaluated_sentences, reference_sentences, n=2):

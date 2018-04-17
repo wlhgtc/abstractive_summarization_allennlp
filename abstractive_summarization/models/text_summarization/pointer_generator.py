@@ -20,6 +20,8 @@ from allennlp.models.model import Model
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits, weighted_sum
 from allennlp.data.instance import Instance
 
+from abstractive_summarization.training.metrics.rouge import Rouge
+
 
 @Model.register("pg")
 class PointerGenerator(Model):
@@ -134,10 +136,9 @@ class PointerGenerator(Model):
                 target_tokens: Dict[str, torch.LongTensor] = None,
                 raw: Dict = None,
                 extended: Dict = None,
+                instances: List = None,
                 predict: bool = False) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
-        import pdb
-        pdb.set_trace()
         if self._pointer_gen:
             source_tokens = raw['source_tokens']
             if 'target_tokens' in raw.keys():
@@ -220,7 +221,13 @@ class PointerGenerator(Model):
             targets = extended['target_tokens']['tokens'] if self._pointer_gen else targets
             loss = self._get_loss(logits, targets, target_mask)
             for metric in self.metrics.values():
-                evaluated_sentences, reference_sentences = self._metric_decode(all_predictions,targets,target_mask)
+                evaluated_sentences = self.decode(output_dict,for_metric=True)["predicted_tokens"]
+                evaluated_sentences = [''.join(i) for i in evaluated_sentences]
+                for es in evaluated_sentences:
+                    if len(es) == 0:
+                        import pdb
+                        pdb.set_trace()
+                reference_sentences = [''.join([j.text for j in i.fields['target_tokens'].tokens[1:-1]]) for i in instances]
                 metric(evaluated_sentences,reference_sentences)
             output_dict["loss"] = loss
         if not predict:
@@ -258,7 +265,7 @@ class PointerGenerator(Model):
         return loss
 
     @overrides
-    def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def decode(self, output_dict: Dict[str, torch.Tensor],for_metric: bool = False) -> Dict[str, torch.Tensor]:
         predicted_indices = output_dict["predictions"]
         if not isinstance(predicted_indices, numpy.ndarray):
             predicted_indices = predicted_indices.data.cpu().numpy()
@@ -271,35 +278,10 @@ class PointerGenerator(Model):
             predicted_tokens = [self.vocab.get_token_from_index(x, namespace=self._target_namespace)
                                 for x in indices]
             all_predicted_tokens.append(predicted_tokens)
-        if self._pointer_gen:
+        if self._pointer_gen and not for_metric:
             self.vocab.drop_extend()
         output_dict["predicted_tokens"] = all_predicted_tokens
         return output_dict
-
-    def _metric_decode(self, all_predictions,targets,target_mask):
-        if not isinstance(all_predictions, numpy.ndarray):
-            all_predictions = all_predictions.data.cpu().numpy()
-        all_predicted_tokens = []
-        for indices in all_predictions:
-            indices = list(indices)
-            # Collect indices till the first end_symbol
-            if self._end_index in indices:
-                indices = indices[:indices.index(self._end_index)]
-            predicted_tokens = [self.vocab.get_token_from_index(x, namespace=self._target_namespace)
-                                for x in indices]
-            all_predicted_tokens.append(predicted_tokens)
-        if not isinstance(targets, numpy.ndarray):
-            targets = targets.data.cpu().numpy()
-        all_target_tokens = []
-        for indices in targets:
-            indices = list(indices)
-            # Collect indices till the first end_symbol
-            if self._end_index in indices:
-                indices = indices[:indices.index(self._end_index)]
-            target_tokens = [self.vocab.get_token_from_index(x, namespace=self._target_namespace)
-                                for x in indices]
-            all_target_tokens.append(target_tokens)
-        return all_predicted_tokens,all_target_tokens
 
     @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:

@@ -95,8 +95,10 @@ class NLPCC3DatasetReader(DatasetReader):
                 
                 if source_string == '':
                     continue
-                
-                yield self.text_to_instance(source_string, target_string)
+                if target_string == '':
+                    yield self.text_to_instance(source_string)
+                else:
+                    yield self.text_to_instance(source_string, target_string)
 
     @overrides
     def text_to_instance(self, source_string: str, target_string: str = None) -> Instance:  # type: ignore
