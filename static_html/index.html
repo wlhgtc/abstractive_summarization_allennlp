@@ -17,7 +17,8 @@
 
                             <div class="form__field">
                                 <label for="input-article">article</label>
-                                <input type="text" id="input-article" type="text" required value placeholder="input goes here">
+                                <textarea type="text" id="input-article" type="text" required value placeholder="input goes here">
+                                </textarea>
                             </div>
 
                             <div class="form__field form__field--btn">
@@ -36,16 +37,12 @@
                                 </div>
                             </div>
                         </div>
-                        <div id="attension" class="output">
-                            <div class="placeholder">
-                                <div id="tips" class="placeholder__content">
-                                    <p>Run model to view attension</p>
-                                </div>
-                            </div>
-                        </div>
+                       
                     </div>
                 </div>
             </div>
+        </div>
+        <div id="attension" style="width:100%;height:100%">
         </div>
     </body>
     <script>
@@ -62,14 +59,12 @@
             if (xhr.status == 200) {
                 var res_json = JSON.parse(xhr.responseText);
                 //summarization
-                var htmlResults = '<p>'+res_json['summarization']+'</p>'
+                var htmlResults = '<p>'+res_json['summarization_text']+'</p>'
                 document.getElementById("summarization").innerHTML = htmlResults;
                 //attension
                 var xValues = res_json['summarization'];
                 var yValues = res_json['article'];
-                var zValues = [
-                  res_json['attensions']
-                ];
+                var zValues = res_json['attensions'];
                 var colorscaleValue = [
                   [0, '#FFFFFF'],
                   [1, '#1E90FF']
@@ -80,21 +75,21 @@
                   z: zValues,
                   type: 'heatmap',
                   colorscale: colorscaleValue,
-                  showscale: false
+                  showscale: true
                 }];
                 var layout = {
                   title: 'summarization attension',
+                  height: 25*yValues.length,
+                  width: 31.5*xValues.length,
                   annotations: [],
                   xaxis: {
                     ticks: '',
-                    side: 'top'
+                    nticks:xValues.length,
+                    side: 'bottom'
                   },
                   yaxis: {
                     ticks: '',
-                    ticksuffix: ' ',
-                    width: 700,
-                    height: 700,
-                    autosize: false
+                    nticks:yValues.length
                   }
                 };
 
@@ -111,10 +106,10 @@
                       yref: 'y1',
                       x: xValues[j],
                       y: yValues[i],
-                      text: zValues[i][j],
+                      text: '',//zValues[i][j],
                       font: {
                         family: 'Arial',
-                        size: 12,
+                        size: 3,
                         color: 'rgb(50, 171, 96)'
                       },
                       showarrow: false,

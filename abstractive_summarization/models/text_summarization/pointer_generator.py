@@ -159,6 +159,7 @@ class PointerGenerator(Model):
         decoder_hidden = self.decode_h0_projection_layer(final_encoder_output)
         decoder_context = self.decode_h0_projection_layer(final_encoder_output)
         last_predictions = None
+        step_attensions = []
         step_logits = []
         step_probabilities = []
         step_predictions = []
@@ -202,6 +203,7 @@ class PointerGenerator(Model):
                 final_probabilities = expand_probabilities*P_gen + torch.zeros_like(expand_probabilities).scatter_(-1,extended['source_tokens']['tokens'], P_attensions*P_copy)
                 class_probabilities = final_probabilities
             # list of (batch_size, 1, num_classes)
+            step_attensions.append(P_attensions.unsqueeze(1))
             step_logits.append(final_logits.unsqueeze(1) if self._pointer_gen else output_projections.unsqueeze(1))
             _, predicted_classes = torch.max(class_probabilities, 1)
             step_probabilities.append(class_probabilities.unsqueeze(1))
@@ -210,10 +212,13 @@ class PointerGenerator(Model):
             step_predictions.append(last_predictions.unsqueeze(1))
         # step_logits is a list containing tensors of shape (batch_size, 1, num_classes)
         # This is (batch_size, num_decoding_steps, num_classes)
+        all_attensions = torch.cat(step_attensions, 1)
         logits = torch.cat(step_logits, 1)
         class_probabilities = torch.cat(step_probabilities, 1)
         all_predictions = torch.cat(step_predictions, 1)
         output_dict = {"logits": logits,
+                       "all_attensions": all_attensions,
+                       "source_tokens": [[j.text for j in i.fields['source_tokens'].tokens] for i in instances],
                        "class_probabilities": class_probabilities,
                        "predictions": all_predictions}
         if target_tokens:
@@ -223,10 +228,6 @@ class PointerGenerator(Model):
             for metric in self.metrics.values():
                 evaluated_sentences = self.decode(output_dict,for_metric=True)["predicted_tokens"]
                 evaluated_sentences = [''.join(i) for i in evaluated_sentences]
-                for es in evaluated_sentences:
-                    if len(es) == 0:
-                        import pdb
-                        pdb.set_trace()
                 reference_sentences = [''.join([j.text for j in i.fields['target_tokens'].tokens[1:-1]]) for i in instances]
                 metric(evaluated_sentences,reference_sentences)
             output_dict["loss"] = loss
@@ -242,8 +243,6 @@ class PointerGenerator(Model):
         # encoder_outputs : (batch_size, input_sequence_length, encoder_output_dim)
         # Ensuring mask is also a FloatTensor. Or else the multiplication within attention will
         # complain.
-        #import pdb
-        #pdb.set_trace()
         encoder_outputs_mask = encoder_outputs_mask.float()
         # (batch_size, input_sequence_length)
         input_weights_e = self._decoder_attention(decoder_hidden_state, encoder_outputs, encoder_outputs_mask)
@@ -304,6 +303,7 @@ class PointerGenerator(Model):
         else:
             model_input = dataset.as_tensor_dict(cuda_device=cuda_device, for_training=False)
         #input
+        model_input.update({'instances':instances})
         model_input.update({'predict':True})
         outputs = self.decode(self(**model_input))
 

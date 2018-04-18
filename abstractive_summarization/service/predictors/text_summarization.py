@@ -20,7 +20,28 @@ class AbstractGeneratorPredictor(Predictor):
     def predict_json(self, inputs: JsonDict, cuda_device: int = -1) -> JsonDict:
         instance, return_dict = self._json_to_instance(inputs)
         outputs = self._model.forward_on_instance(instance, cuda_device)
-        return_dict.update({'summarization':''.join(outputs['predicted_tokens'])})
+        return_dict.update({'summarization_text':''.join(outputs['predicted_tokens'])})
+        sms = []
+        temp_dict = {}
+        for token in outputs['predicted_tokens']:
+            if token in temp_dict.keys():
+                temp_dict[token] += 1
+                sms.append(token+f'@{temp_dict[token]}')
+            else:
+                sms.append(token)
+                temp_dict[token] = 0
+        return_dict.update({'summarization':sms})
+        return_dict.update({'attensions':outputs['all_attensions'].T})
+        sts = []
+        temp_dict = {}
+        for token in outputs['source_tokens']:
+            if token in temp_dict.keys():
+                temp_dict[token] += 1
+                sts.append(token+f'@{temp_dict[token]}')
+            else:
+                sts.append(token)
+                temp_dict[token] = 0
+        return_dict.update({'article':sts})
         return sanitize(return_dict)
     
     @overrides
