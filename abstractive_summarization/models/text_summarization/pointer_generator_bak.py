@@ -17,7 +17,7 @@ from allennlp.modules import Attention, TextFieldEmbedder, Seq2SeqEncoder
 from allennlp.modules.similarity_functions import SimilarityFunction
 from allennlp.modules.token_embedders import Embedding
 from allennlp.models.model import Model
-from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits, weighted_sum
+from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits, weighted_sum, get_final_encoder_states,masked_softmax
 from allennlp.data.instance import Instance
 
 from abstractive_summarization.training.metrics.rouge import Rouge
@@ -149,7 +149,7 @@ class PointerGenerator(Model):
         batch_size, _, _ = embedded_input.size()
         source_mask = get_text_field_mask(source_tokens)
         encoder_outputs = self._encoder(embedded_input, source_mask)
-        final_encoder_output = encoder_outputs[:, -1]  # (batch_size, encoder_output_dim)
+        final_encoder_output = get_final_encoder_states(encoder_outputs,source_mask)#encoder_outputs[:, -1]  # (batch_size, encoder_output_dim)
         if target_tokens:
             targets = target_tokens["tokens"]
             target_sequence_length = targets.size()[1]
@@ -218,18 +218,18 @@ class PointerGenerator(Model):
                 # generation probability
                 P_gen = F.sigmoid(self._pointer_gen_layer(torch.cat((decoder_output,decoder_input),-1)))
                 P_copy = 1 - P_gen
-                #print(f'P_gen:{P_gen},P_copy:{P_copy}')
+                #print(f'P_gen:{P_gen.mean()},P_copy:{P_copy.mean()}')
                 expand_shape =[batch_size,len(self.vocab._token_to_index['tokens'])-self.vocab.unextend_len]
-                expand_variable = Variable(torch.zeros(expand_shape).cuda() if class_probabilities.is_cuda else torch.zeros(expand_shape))
+                expand_variable = Variable(torch.zeros(expand_shape).fill_(1e-13).cuda() if class_probabilities.is_cuda else torch.zeros(expand_shape))
                 
-                expand_logits = torch.cat([output_projections,expand_variable],dim=-1)
-                final_logits = expand_logits*P_gen + torch.zeros_like(expand_logits).scatter_(-1,extended['source_tokens']['tokens'], P_attensions_e*P_copy)
+                #expand_logits = torch.cat([output_projections,expand_variable],dim=-1)
+                #final_logits = expand_logits*P_gen + torch.zeros_like(expand_logits).scatter_(-1,extended['source_tokens']['tokens'], P_attensions_e*P_copy)
                 expand_probabilities = torch.cat([class_probabilities,expand_variable],dim=-1)
                 final_probabilities = expand_probabilities*P_gen + torch.zeros_like(expand_probabilities).scatter_(-1,extended['source_tokens']['tokens'], P_attensions*P_copy)
                 class_probabilities = final_probabilities
             # list of (batch_size, 1, num_classes)
             step_attensions.append(P_attensions.unsqueeze(1))
-            step_logits.append(final_logits.unsqueeze(1) if self._pointer_gen else output_projections.unsqueeze(1))
+            #step_logits.append(final_logits.unsqueeze(1) if self._pointer_gen else output_projections.unsqueeze(1))
             _, predicted_classes = torch.max(class_probabilities, 1)
             step_probabilities.append(class_probabilities.unsqueeze(1))
             last_predictions = predicted_classes
@@ -238,10 +238,10 @@ class PointerGenerator(Model):
         # step_logits is a list containing tensors of shape (batch_size, 1, num_classes)
         # This is (batch_size, num_decoding_steps, num_classes)
         all_attensions = torch.cat(step_attensions, 1)
-        logits = torch.cat(step_logits, 1)
+        #logits = torch.cat(step_logits, 1)
         class_probabilities = torch.cat(step_probabilities, 1)
         all_predictions = torch.cat(step_predictions, 1)
-        output_dict = {"logits": logits,
+        output_dict = {#"logits": logits,
                        "all_attensions": all_attensions,
                        "source_tokens": [[j.text for j in i.fields['source_tokens'].tokens] for i in instances],
                        "class_probabilities": class_probabilities,
@@ -253,7 +253,8 @@ class PointerGenerator(Model):
         if target_tokens:
             target_mask = get_text_field_mask(target_tokens)
             targets = extended['target_tokens']['tokens'] if self._pointer_gen else targets
-            loss = self._get_loss(logits, targets, target_mask) 
+            #loss = self._get_loss(logits, targets, target_mask) 
+            loss = self._get_loss(class_probabilities, targets, target_mask) 
             output_dict["loss"] = loss+self._get_loss(lm_logits, source_tokens['tokens'], source_mask) if self._language_model else loss
             for metric in self.metrics.values():
                 evaluated_sentences = self.decode(output_dict,for_metric=True)["predicted_tokens"]
@@ -275,7 +276,7 @@ class PointerGenerator(Model):
         encoder_outputs_mask = encoder_outputs_mask.float()
         # (batch_size, input_sequence_length)
         input_weights_e = self._decoder_attention(decoder_hidden_state, encoder_outputs, encoder_outputs_mask)
-        input_weights_a = F.softmax(input_weights_e,dim=-1)
+        input_weights_a = masked_softmax(input_weights_e,encoder_outputs_mask)#F.softmax(input_weights_e,dim=-1)
         # (batch_size, encoder_output_dim)
         attended_input = weighted_sum(encoder_outputs, input_weights_a)
         #H*_t = sum(h_i*at_i)
@@ -284,13 +285,28 @@ class PointerGenerator(Model):
         # [S_t,H*_t]
 
     @staticmethod
-    def _get_loss(logits: torch.LongTensor,
+    def _get_loss(probs: torch.LongTensor,
                   targets: torch.LongTensor,
-                  target_mask: torch.LongTensor) -> torch.LongTensor:
+                  target_mask: torch.LongTensor,
+                  batch_average: bool = True) -> torch.LongTensor:
         relevant_targets = targets[:, 1:].contiguous()  # (batch_size, num_decoding_steps)
         relevant_mask = target_mask[:, 1:].contiguous()  # (batch_size, num_decoding_steps)
-        loss = sequence_cross_entropy_with_logits(logits, relevant_targets, relevant_mask)
-        return loss
+        probs_flat = probs.view(-1,probs.size(-1))
+        log_probs_flat = torch.log(probs_flat)
+        targets_flat = relevant_targets.view(-1, 1).long()
+        
+        negative_log_likelihood_flat = - torch.gather(log_probs_flat, dim=1, index=targets_flat)
+        # shape : (batch, sequence_length)
+        negative_log_likelihood = negative_log_likelihood_flat.view(*relevant_targets.size())
+        # shape : (batch, sequence_length)
+        negative_log_likelihood = negative_log_likelihood * relevant_mask.float()
+        # shape : (batch_size,)
+        per_batch_loss = negative_log_likelihood.sum(1) / (relevant_mask.sum(1).float() + 1e-13)
+
+        if batch_average:
+            num_non_empty_sequences = ((relevant_mask.sum(1) > 0).float().sum() + 1e-13)
+            return per_batch_loss.sum() / num_non_empty_sequences
+        return per_batch_loss
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor],for_metric: bool = False) -> Dict[str, torch.Tensor]:

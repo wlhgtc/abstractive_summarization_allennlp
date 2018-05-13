@@ -160,16 +160,25 @@ class LtpServerWordSplitter(WordSplitter):
 
 @WordSplitter.register('thulac-server')
 class ThulacServerWordSplitter(WordSplitter):
+    def __init__(self,
+                 pos_pattern=False):
+        self._pos_pattern = pos_pattern
+        self._pattern_pos = ['np','ns','ni','nz','m','i','id','t','j']
+    
     @overrides
     def split_words(self, doc: str) -> List[Token]:
         #tokens = requests.get("http://127.0.0.1:8000/thulac?text=%s"%doc).json()
-        tokens = requests.post("http://127.0.0.1:8000/thulac",data={'text':doc}).json()
-        return [Token(t) for t in tokens]
+        try:
+            tokens =[t.split('_') for t in requests.post("http://127.0.0.1:8000/thulac",data={'text':doc}).json()]
+        except:
+            return [Token(',',pos='ws')],[Token(',',pos='ws')],[]
+        return [Token(t[0],pos=t[1]) for t in tokens],[Token(t[0],pos=t[1]) if not self._pos_pattern or t[1] not in self._pattern_pos else Token('@@'+t[1]+'@@',pos=t[1]) for t in tokens],[t[0] if not self._pos_pattern or t[1] not in self._pattern_pos else 'c_'+t[0] for t in tokens]
 
     @classmethod
     def from_params(cls, params: Params) -> 'ThulacServerWordSplitter':
+        pos_pattern = params.pop_bool('pos_pattern', False)
         params.assert_empty(cls.__name__)
-        return cls()
+        return cls(pos_pattern=pos_pattern)
 
 @WordSplitter.register('corenlp-server')
 class CorenlpServerWordSplitter(WordSplitter):

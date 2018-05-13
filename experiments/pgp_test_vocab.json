@@ -1,11 +1,12 @@
 {
   "dataset_reader": {
-    "type": "nlpcc3",
+    "type": "nlpcc3-pattern",
     "lazy": false,
     "source_tokenizer": {
       "type": "word",
       "word_splitter": {
          "type": "thulac-server",
+         "pos_pattern": true
       },
     },
     "source_token_indexers": {

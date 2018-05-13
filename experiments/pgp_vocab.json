@@ -1,11 +1,12 @@
 {
   "dataset_reader": {
-    "type": "nlpcc3",
+    "type": "nlpcc3-pattern",
     "lazy": false,
     "source_tokenizer": {
       "type": "word",
       "word_splitter": {
          "type": "thulac-server",
+         "pos_pattern": true
       },
     },
     "source_token_indexers": {
@@ -15,12 +16,12 @@
     },
     "make_vocab": true
   },
-  "train_data_path": "tests/fixtures/train.jsonl",
-  "validation_data_path": "tests/fixtures/val.jsonl",
-  "test_data_path": "tests/fixtures/test.jsonl",
+  "train_data_path": "tmp/train.jsonl",
+  "validation_data_path": "tmp/val.jsonl",
+  "test_data_path": "tmp/test.jsonl",
   "evaluate_on_test": false,
   "vocabulary": {
     "min_count": {"tokens": 2},
-    "max_vocab_size": 5000
+    "max_vocab_size": 20000
   }
 }

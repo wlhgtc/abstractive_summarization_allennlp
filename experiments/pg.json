@@ -5,7 +5,8 @@
     "source_tokenizer": {
       "type": "word",
       "word_splitter": {
-         "type": "thulac",
+         "type": "thulac-server",
+         "pos_pattern": true,
       },
     },
     "source_token_indexers": {
@@ -43,7 +44,7 @@
       "num_layers": 1,
       "dropout": 0.2
     },
-    "max_decoding_steps": 60,
+    "max_decoding_steps": 30,
     "attention_function": {
       "type": "linear-v",
       "combination": "x,y",
@@ -54,11 +55,11 @@
     },
   },
   "iterator": {
-    "type": "bucket",
+    "type": "dv-bucket",
     "sorting_keys": [["source_tokens", "num_tokens"],["target_tokens","num_tokens"]],
     "biggest_batch_first": true,
     "batch_size": 16,
-    "max_instances_in_memory": 12800
+    "max_instances_in_memory": 64
   },
   "trainer": {
     "num_epochs": 20,

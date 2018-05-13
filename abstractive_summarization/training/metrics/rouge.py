@@ -7,48 +7,52 @@ from allennlp.training.metrics.metric import Metric
 
 @Metric.register("rouge")
 class Rouge(Metric):
+    """
+    sentence level
+    """
     def __init__(self,
-                 n:int = 1) -> None:
+                 n:int = 1,
+                 beta:int = 1) -> None:
         self._n = n
+        self._beta = beta
         self._total_p = 0.0
         self._total_r = 0.0
-        self._total_f1 = 0.0
+        self._total_f = 0.0
         self._count = 0
 
     @overrides
     def __call__(self, evaluated_sentences, reference_sentences):
         for i,j in zip(evaluated_sentences, reference_sentences):
-            p,r,f1_score = rouge_n(i, j, n=self._n)
+            try:
+                print(f'reference:{j}')
+                print(f'predict:{i}')
+            except:
+                pass
+            p,r,f_score = rouge_n([i], [j], n=self._n, beta=self._beta)
             self._total_p += p
             self._total_r += r
-            self._total_f1 += f1_score
+            self._total_f += f_score
             self._count += 1
 
     @overrides
     def get_metric(self, reset: bool = False) -> Tuple[float, float]:
-        """
-        Returns
-        -------
-        Average exact match and F1 score (in that order) as computed by the official SQuAD script
-        over all inputs.
-        """
         precision = self._total_p / self._count if self._count > 0 else 0
         recall = self._total_r / self._count if self._count > 0 else 0
-        f1_score = self._total_f1 / self._count if self._count > 0 else 0
+        f_score = self._total_f / self._count if self._count > 0 else 0
         if reset:
             self.reset()
         #return precision, recall, f1_score
-        return f1_score
+        return f_score
 
     @overrides
     def reset(self):
         self._total_p = 0.0
         self._total_r = 0.0
-        self._total_f1 = 0.0
+        self._total_f = 0.0
         self._count = 0
 
     def __str__(self):
-        return f"Rouge(n={self._n},p={self._total_p}, r={self._total_r}, f1={self._total_f1})"
+        return f"Rouge(n={self._n},p={self._total_p}, r={self._total_r}, f1={self._total_f})"
      
 def _get_ngrams(n, text):
     ngram_set = set()
@@ -78,21 +82,6 @@ def _get_word_ngrams(n, sentences):
     
 
 def rouge_n(evaluated_sentences, reference_sentences, n=2, beta=1):
-    """
-    Computes ROUGE-N of two text collections of sentences.
-    Sourece: http://research.microsoft.com/en-us/um/people/cyl/download/
-    papers/rouge-working-note-v1.3.1.pdf
-
-    :param evaluated_sentences:
-        The sentences that have been picked by the summarizer
-    :param reference_sentences:
-        The sentences from the referene set
-    :param n: Size of ngram.  Defaults to 2.
-    :returns:
-        float 0 <= ROUGE-N <= 1, where 0 means no overlap and 1 means
-        exactly the same.
-    :raises ValueError: raises exception if a param has len <= 0
-    """
     if len(evaluated_sentences) <= 0 or len(reference_sentences) <= 0:
         return 0,0,0
         raise (ValueError("Collections must contain at least 1 sentence."))
@@ -108,25 +97,10 @@ def rouge_n(evaluated_sentences, reference_sentences, n=2, beta=1):
 
     precision = float(overlapping_count) / float(evaluated_count + 1e-13)
     recall = float(overlapping_count) / float(reference_count + 1e-13)
-    f_measure = (1+beta*beta) * ((precision * recall) / (beta*beta)*(precision + recall + 1e-13))
+    f_measure = ((1 + (beta ** 2)) * (precision * recall)) / ((beta ** 2)*precision + recall + 1e-13)
     return precision, recall, f_measure 
 
 def rouge_su_n(evaluated_sentences, reference_sentences, n=2):
-    """
-    Computes ROUGE-SU(Skip-bigram plus unigram)-N of two text collections of sentences.
-    Sourece: http://research.microsoft.com/en-us/um/people/cyl/download/
-    papers/rouge-working-note-v1.3.1.pdf
-
-    :param evaluated_sentences:
-        The sentences that have been picked by the summarizer
-    :param reference_sentences:
-        The sentences from the referene set
-    :param n: Size of ngram.  Defaults to 2.
-    :returns:
-        float 0 <= ROUGE-N <= 1, where 0 means no overlap and 1 means
-        exactly the same.
-    :raises ValueError: raises exception if a param has len <= 0
-    """
     if len(evaluated_sentences) <= 0 or len(reference_sentences) <= 0:
         raise (ValueError("Collections must contain at least 1 sentence."))
 
@@ -141,39 +115,17 @@ def rouge_su_n(evaluated_sentences, reference_sentences, n=2):
 
     precision = float(overlapping_count) / float(evaluated_count + 1e-13)
     recall = float(overlapping_count) / float(reference_count + 1e-13)
-    f1_measure = 2. * ((precision * recall) / (precision + recall + 1e-13))
-    return precision, recall, f1_measure 
-
-def _get_index_of_lcs(x, y):
-    return len(x), len(y)
+    f_measure = 2. * ((precision * recall) / (precision + recall + 1e-13))
+    return precision, recall, f_measure 
 
 def _len_lcs(x, y):
-    """
-    Returns the length of the Longest Common Subsequence between sequences x
-    and y.
-    Source: http://www.algorithmist.com/index.php/Longest_Common_Subsequence
-
-    :param x: sequence of words
-    :param y: sequence of words
-    :returns integer: Length of LCS between x and y
-    """
     table = _lcs(x, y)
-    n, m = _get_index_of_lcs(x, y)
+    n, m = len(x), len(y)
     return table[n, m]
 
 
 def _lcs(x, y):
-    """
-    Computes the length of the longest common subsequence (lcs) between two
-    strings. The implementation below uses a DP programming algorithm and runs
-    in O(nm) time where n = len(x) and m = len(y).
-    Source: http://www.algorithmist.com/index.php/Longest_Common_Subsequence
-
-    :param x: collection of words
-    :param y: collection of words
-    :returns table: dictionary of coord and len lcs
-    """
-    n, m = _get_index_of_lcs(x, y)
+    n, m = len(x), len(y)
     table = dict()
     for i in range(n + 1):
         for j in range(m + 1):
@@ -187,14 +139,6 @@ def _lcs(x, y):
 
 
 def _recon_lcs(x, y):
-    """
-    Returns the Longest Subsequence between x and y.
-    Source: http://www.algorithmist.com/index.php/Longest_Common_Subsequence
-
-    :param x: sequence of words
-    :param y: sequence of words
-    :returns sequence: LCS of x and y
-    """
     table = _lcs(x, y)
 
     def _recon(i, j):
@@ -207,7 +151,7 @@ def _recon_lcs(x, y):
         else:
             return _recon(i, j - 1)
 
-    i, j = _get_index_of_lcs(x, y)
+    i, j = len(x), len(y)
     recon_tuple = tuple(map(lambda r: r[0], _recon(i, j)))
     return recon_tuple
 
@@ -231,29 +175,6 @@ def _f_lcs(llcs, m, n):
 
 
 def rouge_l_sentence_level(evaluated_sentences, reference_sentences):
-    """
-    Computes ROUGE-L (sentence level) of two text collections of sentences.
-    http://research.microsoft.com/en-us/um/people/cyl/download/papers/
-    rouge-working-note-v1.3.1.pdf
-
-    Calculated according to:
-    R_lcs = LCS(X,Y)/m
-    P_lcs = LCS(X,Y)/n
-    F_lcs = ((1 + beta^2)*R_lcs*P_lcs) / (R_lcs + (beta^2) * P_lcs)
-
-    where:
-    X = reference summary
-    Y = Candidate summary
-    m = length of reference summary
-    n = length of candidate summary
-
-    :param evaluated_sentences:
-        The sentences that have been picked by the summarizer
-    :param reference_sentences:
-        The sentences from the referene set
-    :returns float: F_lcs
-    :raises ValueError: raises exception if a param has len <= 0
-    """
     if len(evaluated_sentences) <= 0 or len(reference_sentences) <= 0:
         raise (ValueError("Collections must contain at least 1 sentence."))
     reference_words = _split_into_words(reference_sentences)

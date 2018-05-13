@@ -5,7 +5,7 @@
     "source_tokenizer": {
       "type": "word",
       "word_splitter": {
-         "type": "thulac",
+         "type": "thulac-server",
       },
     },
     "source_token_indexers": {
@@ -17,10 +17,10 @@
   },
   "train_data_path": "tmp/train.jsonl",
   "validation_data_path": "tmp/val.jsonl",
-  "test_data_path": "tmp/test_vocab.jsonl",
+  "test_data_path": "tmp/test.jsonl",
   "evaluate_on_test": false,
   "vocabulary": {
     "min_count": {"tokens": 2},
-    "max_vocab_size": {"tokens": 50000}
+    "max_vocab_size": 50000
   }
 }
